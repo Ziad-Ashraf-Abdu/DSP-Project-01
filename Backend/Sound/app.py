@@ -66,7 +66,7 @@ def ensure_model():
 # ========================
 # Prediction helper
 # ========================
-def predict_with_local_model(processor, model, device, audio, sr, chunk_s=5):
+def predict_with_local_model(processor, model, device, audio, sr, chunk_s=2):
     """Split audio into chunks, classify each, return results."""
     results = []
     target_sr = 16000

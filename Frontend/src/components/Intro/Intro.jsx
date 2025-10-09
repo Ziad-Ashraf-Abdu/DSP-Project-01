@@ -24,7 +24,7 @@ export default function Intro() {
           <Button bgColor="#28a745" to="http://127.0.0.1:8050/">
             Doppler
           </Button>
-          <Button bgColor="#ff6b6b" to={"/sar"}>
+          <Button bgColor="#ff6b6b" to={"http://127.0.0.1:8053/"}>
             SAR
           </Button>
           <Button bgColor="#9d4edd" to="http://127.0.0.1:8051/">

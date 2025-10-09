@@ -1,4 +1,5 @@
 import os
+import h5py
 import dash
 from dash import dcc, html, Input, Output, State
 import dash_bootstrap_components as dbc
@@ -8,14 +9,78 @@ from scipy.fft import fft, fftfreq
 from scipy.signal import find_peaks
 import librosa
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-app.config.suppress_callback_exceptions = True
-
+# ---------- CONFIG ----------
 SPEED_OF_SOUND = 343  # m/s
+AUDIO_FILE = "CitroenC4Picasso_51.wav"
+H5_FILE = "speed_estimations_NN_1000-200-50-10-1_reg1e-3_lossMSE.h5"
+# ----------------------------
 
-# === AUDIO ANALYSIS (Optional - only runs if file exists) ===
-AUDIO_FILE = "car_sound.wav"
-dominant_freq = 500  # Default frequency
+# Derived names
+vehiclename_full = os.path.splitext(os.path.basename(AUDIO_FILE))[0]
+vehiclename_prefix = vehiclename_full.split('_')[0] if '_' in vehiclename_full else vehiclename_full
+
+# HDF5 stats placeholders
+h5_loaded = False
+speed_mode = None
+speed_mean = None
+speed_count = 0
+speed_est_array = None
+h5_error_msg = None
+h5_used_key = None
+
+# Try to read HDF5 dataset using prefix-based matching
+if os.path.exists(H5_FILE):
+    try:
+        with h5py.File(H5_FILE, 'r') as hf:
+            available_keys = list(hf.keys())
+            candidates = [k for k in available_keys if k.startswith(vehiclename_prefix)]
+            pref1 = f"{vehiclename_prefix}_speeds_est_all"
+            pref2 = f"{vehiclename_prefix}_speeds_gt"
+
+            chosen_key = None
+            if pref1 in hf:
+                chosen_key = pref1
+            elif pref2 in hf:
+                chosen_key = pref2
+            elif candidates:
+                chosen_key = candidates[0]
+
+            if chosen_key:
+                h5_used_key = chosen_key
+                speed_est_array = np.array(hf[chosen_key])
+                speed_count = int(speed_est_array.size)
+                print(
+                    f"Using HDF5 key '{chosen_key}' for prefix '{vehiclename_prefix}' (derived from '{vehiclename_full}').")
+                print(f"Found {speed_count} speed estimates in '{H5_FILE}' under key '{chosen_key}'.")
+
+                for s in speed_est_array:
+                    print(s)
+
+                valid = speed_est_array[~np.isnan(speed_est_array)]
+                if valid.size > 0:
+                    vals, counts = np.unique(valid, return_counts=True)
+                    mode_val = vals[np.argmax(counts)]
+                    mean_val = float(np.mean(valid))
+                    speed_mode = float(mode_val)
+                    speed_mean = mean_val
+                    h5_loaded = True
+                    print(f"Mode (most frequent): {speed_mode}")
+                    print(f"Mean speed: {speed_mean:.6f}")
+                else:
+                    print("No valid (non-NaN) speed estimates to compute statistics.")
+            else:
+                h5_error_msg = (f"No HDF5 keys starting with '{vehiclename_prefix}' were found in '{H5_FILE}'. "
+                                f"Available keys: {available_keys}")
+                print(h5_error_msg)
+    except Exception as e:
+        h5_error_msg = f"Error reading H5 file '{H5_FILE}': {e}"
+        print(h5_error_msg)
+else:
+    h5_error_msg = f"H5 file '{H5_FILE}' not found."
+    print(h5_error_msg)
+
+# ---------- AUDIO ANALYSIS ----------
+dominant_freq = 500
 audio_fig = None
 audio_loaded = False
 
@@ -25,39 +90,44 @@ if os.path.exists(AUDIO_FILE):
         y, sr = librosa.load(AUDIO_FILE, sr=None, mono=True)
         print(f"Loaded: {len(y)} samples at {sr} Hz")
 
-        # Compute FFT
         N = len(y)
         yf = fft(y)
         xf = fftfreq(N, 1 / sr)[:N // 2]
         magnitude = 2.0 / N * np.abs(yf[0:N // 2])
 
-        # Find dominant frequency (>20 Hz)
         min_freq = 20
         min_idx = np.argmax(xf >= min_freq)
         peak_idx, _ = find_peaks(magnitude[min_idx:], height=np.max(magnitude) * 0.1, distance=100)
 
         if len(peak_idx) > 0:
-            dominant_freq = xf[min_idx + peak_idx[0]]
+            dominant_freq = float(xf[min_idx + peak_idx[0]])
 
-        # Create plot
         audio_fig = go.Figure()
-        audio_fig.add_trace(go.Scatter(x=xf, y=magnitude, mode='lines', name='Spectrum', line=dict(color='#667eea')))
+        audio_fig.add_trace(go.Scatter(
+            x=xf, y=magnitude,
+            mode='lines',
+            name='Spectrum',
+            line=dict(color='#667eea', width=2),
+            fill='tozeroy',
+            fillcolor='rgba(102, 126, 234, 0.1)'
+        ))
         if dominant_freq > 0:
             audio_fig.add_vline(
                 x=dominant_freq,
-                line=dict(color='#ef4444', dash='dash', width=3),
+                line=dict(color='#f093fb', dash='dash', width=3),
                 annotation_text=f"Dominant: {dominant_freq:.1f} Hz",
                 annotation_position="top right",
-                annotation_font=dict(size=14, color='#ef4444', family='Arial Black')
+                annotation=dict(font=dict(size=14, color='#f093fb', family='Arial'))
             )
         audio_fig.update_layout(
-            title="Car Sound Frequency Spectrum",
+            title=dict(text="Car Sound Frequency Spectrum", font=dict(size=18, color='#2d3748', family='Arial')),
             xaxis_title="Frequency (Hz)",
             yaxis_title="Magnitude",
             xaxis_range=[0, 2000],
-            plot_bgcolor='rgba(249, 250, 251, 0.5)',
+            plot_bgcolor='rgba(247, 250, 252, 0.5)',
             paper_bgcolor='white',
-            font=dict(family='Arial, sans-serif', size=12, color='#374151')
+            font=dict(family='Arial', color='#4a5568'),
+            margin=dict(l=50, r=30, t=60, b=50)
         )
         audio_loaded = True
         print(f"Audio analysis complete. Dominant frequency: {dominant_freq:.1f} Hz")
@@ -67,320 +137,407 @@ if os.path.exists(AUDIO_FILE):
 else:
     print(f"Audio file '{AUDIO_FILE}' not found. Using default frequency.")
 
+# ---------- DASH APP ----------
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app.config.suppress_callback_exceptions = True
 
-# Helper to create labeled input fields
+
 def labeled_input(label, id, value, width=80):
     return html.Div([
         html.Label(label, style={
             'display': 'inline-block',
             'width': '140px',
             'fontWeight': '600',
-            'color': '#2c3e50',
+            'color': '#2d3748',
             'fontSize': '14px'
         }),
-        dcc.Input(id=id, type='number', value=value, style={
-            'width': f'{width}px',
-            'padding': '8px 12px',
-            'border': '2px solid #e0e0e0',
-            'borderRadius': '8px',
-            'fontSize': '14px',
-            'transition': 'all 0.3s ease',
-            'outline': 'none'
-        })
-    ], style={'marginBottom': '15px'})
+        dcc.Input(
+            id=id,
+            type='number',
+            value=value,
+            style={
+                'width': f'{width}px',
+                'padding': '10px 14px',
+                'borderRadius': '8px',
+                'border': '2px solid #e2e8f0',
+                'fontSize': '14px',
+                'transition': 'all 0.3s ease',
+                'outline': 'none'
+            },
+            className='custom-input'
+        )
+    ], style={'marginBottom': '14px'})
 
 
-# Layout
+def hdf5_summary_lines():
+    cnt = speed_count if (speed_count is not None and speed_count != 0) else "N/A"
+    mode_str = f"{speed_mode}" if speed_mode is not None else "N/A"
+    mean_str = f"{speed_mean:.3f}" if speed_mean is not None else "N/A"
+    return html.Div([
+        html.P(f"AUDIO_FILE full: {AUDIO_FILE}, Speed estimates found: {cnt}",
+               style={'margin': '0', 'fontSize': '14px', 'color': '#4a5568'}),
+        html.Br(),
+        html.P(f"Mode (most frequent): {mode_str} m/s", style={'margin': '0', 'fontSize': '14px', 'color': '#4a5568'}),
+        html.Br(),
+        html.P(f"Mean speed: {mean_str} m/s", style={'margin': '0', 'fontSize': '14px', 'color': '#4a5568'})
+    ], style={
+        'padding': '20px',
+        'backgroundColor': 'white',
+        'borderRadius': '12px',
+        'boxShadow': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+        'border': '1px solid #e2e8f0'
+    })
+
+
+# Add custom CSS to the app
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <style>
+            .custom-input:focus {
+                border-color: #667eea !important;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+            }
+            .custom-button {
+                transition: all 0.3s ease;
+            }
+            .custom-button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            }
+        </style>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
+
 app.layout = html.Div([
-    # Header with gradient background
+    # Header
     html.Div([
         html.H1("🔊 Advanced Doppler Effect Simulator", style={
             'textAlign': 'center',
             'color': 'white',
+            'padding': '32px 24px 16px 24px',
             'margin': '0',
-            'padding': '30px',
-            'fontSize': '36px',
             'fontWeight': '700',
-            'letterSpacing': '1px',
-            'textShadow': '2px 2px 4px rgba(0,0,0,0.3)'
+            'fontSize': '36px',
+            'letterSpacing': '-0.5px'
         }),
         html.P("Interactive Physics Simulation with Real-Time Audio & Frequency Analysis", style={
             'textAlign': 'center',
-            'color': 'rgba(255,255,255,0.9)',
-            'margin': '0',
-            'paddingBottom': '20px',
+            'color': 'rgba(255, 255, 255, 0.9)',
             'fontSize': '16px',
-            'fontWeight': '300'
+            'margin': '0',
+            'paddingBottom': '32px'
         })
     ], style={
         'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         'marginBottom': '30px',
-        'boxShadow': '0 4px 6px rgba(0,0,0,0.1)'
+        'boxShadow': '0 10px 25px rgba(102, 126, 234, 0.3)'
     }),
 
-    # Audio Analysis Section (only if audio loaded)
+    # HDF5 Summary
+    dbc.Container([
+        dbc.Row([
+            dbc.Col([
+                hdf5_summary_lines()
+            ])
+        ])
+    ], fluid=True, style={'marginBottom': '30px'}),
+
+    # Audio Analysis Section
     html.Div([
         dbc.Container([
             dbc.Row([
                 dbc.Col([
                     html.Div([
                         html.H3("🎵 Audio Frequency Analysis", style={
-                            'color': '#667eea',
-                            'marginBottom': '15px',
-                            'fontSize': '24px',
-                            'fontWeight': '700'
+                            'color': '#2d3748',
+                            'fontSize': '22px',
+                            'fontWeight': '700',
+                            'marginBottom': '12px'
                         }),
                         html.P(f"Analyzed car sound file: {AUDIO_FILE}", style={
+                            'color': '#718096',
                             'fontSize': '14px',
-                            'color': '#6b7280',
-                            'marginBottom': '10px'
+                            'marginBottom': '8px'
                         }),
                         html.H4(f"Detected Frequency: {dominant_freq:.1f} Hz", style={
-                            'color': '#ef4444',
-                            'fontSize': '20px',
+                            'color': '#667eea',
+                            'fontSize': '28px',
                             'fontWeight': '700',
-                            'marginBottom': '15px'
+                            'marginBottom': '16px'
                         }),
-                        html.Button('📊 Use This Frequency', id='use-audio-freq-btn', n_clicks=0, style={
-                            'padding': '10px 20px',
-                            'backgroundColor': '#667eea',
-                            'color': 'white',
-                            'border': 'none',
-                            'borderRadius': '8px',
-                            'fontSize': '14px',
-                            'fontWeight': '600',
-                            'cursor': 'pointer',
-                            'boxShadow': '0 4px 12px rgba(102, 126, 234, 0.3)',
-                            'transition': 'all 0.3s ease'
-                        })
+                        html.Button('📊 Use This Frequency',
+                                    id='use-audio-freq-btn',
+                                    n_clicks=0,
+                                    className='custom-button',
+                                    style={
+                                        'backgroundColor': '#667eea',
+                                        'color': 'white',
+                                        'border': 'none',
+                                        'padding': '12px 24px',
+                                        'borderRadius': '8px',
+                                        'fontSize': '15px',
+                                        'fontWeight': '600',
+                                        'cursor': 'pointer'
+                                    }
+                                    )
                     ], style={
-                        'padding': '20px',
+                        'padding': '24px',
                         'backgroundColor': 'white',
                         'borderRadius': '12px',
-                        'boxShadow': '0 4px 12px rgba(0,0,0,0.08)',
+                        'boxShadow': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                        'border': '1px solid #e2e8f0',
                         'marginBottom': '20px'
                     })
                 ])
             ]),
             dbc.Row([
                 dbc.Col([
-                    dcc.Graph(figure=audio_fig, style={'height': '400px'})
+                    html.Div([
+                        dcc.Graph(figure=audio_fig, style={'height': '400px'})
+                    ], style={
+                        'backgroundColor': 'white',
+                        'borderRadius': '12px',
+                        'padding': '16px',
+                        'boxShadow': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                        'border': '1px solid #e2e8f0'
+                    })
                 ])
             ])
-        ], fluid=True, style={'marginBottom': '30px'})
-    ], style={'padding': '0 20px'}) if audio_loaded else html.Div(),
+        ], fluid=True)
+    ], style={'marginBottom': '30px'}) if audio_loaded else html.Div(),
 
-    html.Div([
-        # Source Panel
-        html.Div([
-            html.Div([
-                html.H3("🔊 Sound Source", style={
-                    'color': '#667eea',
-                    'marginBottom': '20px',
-                    'fontSize': '22px',
-                    'fontWeight': '700',
-                    'borderBottom': '3px solid #667eea',
-                    'paddingBottom': '10px'
-                }),
-                dcc.RadioItems(
-                    id='source-type',
-                    options=[{'label': ' Moving', 'value': 'moving'},
-                             {'label': ' Static', 'value': 'static'}],
-                    value='moving',
-                    inline=True,
-                    style={'marginBottom': '20px'},
-                    labelStyle={
-                        'marginRight': '20px',
-                        'fontSize': '15px',
-                        'fontWeight': '500'
-                    }
-                ),
+    # Controls
+    dbc.Container([
+        dbc.Row([
+            dbc.Col([
                 html.Div([
+                    html.H3("🔊 Sound Source", style={
+                        'color': '#2d3748',
+                        'fontSize': '20px',
+                        'fontWeight': '700',
+                        'marginBottom': '16px'
+                    }),
+                    dcc.RadioItems(
+                        id='source-type',
+                        options=[
+                            {'label': ' Moving', 'value': 'moving'},
+                            {'label': ' Static', 'value': 'static'}
+                        ],
+                        value='moving',
+                        inline=True,
+                        style={'marginBottom': '16px', 'fontSize': '14px'},
+                        labelStyle={'marginRight': '20px', 'color': '#4a5568'}
+                    ),
                     labeled_input("Start X (m):", 'source-x0', -200),
                     labeled_input("Start Y (m):", 'source-y0', 0),
                     html.Div(id='source-vel-inputs', children=[
                         labeled_input("Speed (m/s):", 'source-speed', 30),
                         labeled_input("Direction (°):", 'source-dir', 0)
                     ])
-                ])
-            ], style={
-                'padding': '25px',
-                'backgroundColor': '#f8f9ff',
-                'borderRadius': '15px',
-                'border': '2px solid #667eea',
-                'boxShadow': '0 4px 12px rgba(102, 126, 234, 0.15)'
-            })
-        ], style={
-            'width': '48%',
-            'display': 'inline-block',
-            'verticalAlign': 'top'
-        }),
+                ], style={
+                    'padding': '24px',
+                    'backgroundColor': 'white',
+                    'borderRadius': '12px',
+                    'boxShadow': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                    'border': '1px solid #e2e8f0',
+                    'height': '100%'
+                })
+            ], md=6),
 
-        # Observer Panel
-        html.Div([
-            html.Div([
-                html.H3("👂 Observer", style={
-                    'color': '#f093fb',
-                    'marginBottom': '20px',
-                    'fontSize': '22px',
-                    'fontWeight': '700',
-                    'borderBottom': '3px solid #f093fb',
-                    'paddingBottom': '10px'
-                }),
-                dcc.RadioItems(
-                    id='observer-type',
-                    options=[{'label': ' Moving', 'value': 'moving'},
-                             {'label': ' Static', 'value': 'static'}],
-                    value='moving',
-                    inline=True,
-                    style={'marginBottom': '20px'},
-                    labelStyle={
-                        'marginRight': '20px',
-                        'fontSize': '15px',
-                        'fontWeight': '500'
-                    }
-                ),
+            dbc.Col([
                 html.Div([
+                    html.H3("👂 Observer", style={
+                        'color': '#2d3748',
+                        'fontSize': '20px',
+                        'fontWeight': '700',
+                        'marginBottom': '16px'
+                    }),
+                    dcc.RadioItems(
+                        id='observer-type',
+                        options=[
+                            {'label': ' Moving', 'value': 'moving'},
+                            {'label': ' Static', 'value': 'static'}
+                        ],
+                        value='moving',
+                        inline=True,
+                        style={'marginBottom': '16px', 'fontSize': '14px'},
+                        labelStyle={'marginRight': '20px', 'color': '#4a5568'}
+                    ),
                     labeled_input("Start X (m):", 'observer-x0', 0),
                     labeled_input("Start Y (m):", 'observer-y0', 0),
                     html.Div(id='observer-vel-inputs', children=[
                         labeled_input("Speed (m/s):", 'observer-speed', 10),
                         labeled_input("Direction (°):", 'observer-dir', 180)
                     ])
-                ])
-            ], style={
-                'padding': '25px',
-                'backgroundColor': '#fff8fd',
-                'borderRadius': '15px',
-                'border': '2px solid #f093fb',
-                'boxShadow': '0 4px 12px rgba(240, 147, 251, 0.15)'
-            })
-        ], style={
-            'width': '48%',
-            'display': 'inline-block',
-            'verticalAlign': 'top',
-            'marginLeft': '4%'
-        })
-    ], style={'marginBottom': '30px', 'padding': '0 20px'}),
+                ], style={
+                    'padding': '24px',
+                    'backgroundColor': 'white',
+                    'borderRadius': '12px',
+                    'boxShadow': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                    'border': '1px solid #e2e8f0',
+                    'height': '100%'
+                })
+            ], md=6)
+        ], style={'marginBottom': '30px'})
+    ], fluid=True),
 
-    # Global Settings
+    # Frequency Input
     html.Div([
         html.Div([
-            labeled_input("Emitted Frequency (Hz):", 'freq-input', int(dominant_freq), width=100)
+            labeled_input("Emitted Frequency (Hz):", 'freq-input', int(dominant_freq), width=120)
         ], style={
             'display': 'inline-block',
             'padding': '20px 40px',
             'backgroundColor': 'white',
-            'borderRadius': '15px',
-            'boxShadow': '0 4px 12px rgba(0,0,0,0.08)',
-            'border': '2px solid #e0e0e0'
+            'borderRadius': '12px',
+            'boxShadow': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            'border': '1px solid #e2e8f0'
         })
-    ], style={'textAlign': 'center', 'marginBottom': '25px'}),
+    ], style={'textAlign': 'center', 'marginBottom': '30px'}),
 
-    # Buttons
+    # Control Buttons
     html.Div([
-        html.Button('▶️ Start', id='start-btn', n_clicks=0, style={
-            'marginRight': '12px',
-            'padding': '12px 28px',
-            'backgroundColor': '#10b981',
-            'color': 'white',
-            'border': 'none',
-            'borderRadius': '10px',
-            'fontSize': '16px',
-            'fontWeight': '600',
-            'cursor': 'pointer',
-            'boxShadow': '0 4px 12px rgba(16, 185, 129, 0.3)',
-            'transition': 'all 0.3s ease',
-            'letterSpacing': '0.5px'
-        }),
-        html.Button('⏸️ Pause', id='pause-btn', n_clicks=0, style={
-            'marginRight': '12px',
-            'padding': '12px 28px',
-            'backgroundColor': '#f59e0b',
-            'color': 'white',
-            'border': 'none',
-            'borderRadius': '10px',
-            'fontSize': '16px',
-            'fontWeight': '600',
-            'cursor': 'pointer',
-            'boxShadow': '0 4px 12px rgba(245, 158, 11, 0.3)',
-            'transition': 'all 0.3s ease',
-            'letterSpacing': '0.5px'
-        }),
-        html.Button('⏹️ Reset', id='reset-btn', n_clicks=0, style={
-            'marginRight': '12px',
-            'padding': '12px 28px',
-            'backgroundColor': '#ef4444',
-            'color': 'white',
-            'border': 'none',
-            'borderRadius': '10px',
-            'fontSize': '16px',
-            'fontWeight': '600',
-            'cursor': 'pointer',
-            'boxShadow': '0 4px 12px rgba(239, 68, 68, 0.3)',
-            'transition': 'all 0.3s ease',
-            'letterSpacing': '0.5px'
-        }),
-        html.Button('🔈 Mute', id='mute-btn', n_clicks=0, style={
-            'padding': '12px 24px',
-            'backgroundColor': '#6b7280',
-            'color': 'white',
-            'border': 'none',
-            'borderRadius': '10px',
-            'fontSize': '16px',
-            'fontWeight': '600',
-            'cursor': 'pointer',
-            'boxShadow': '0 4px 12px rgba(107, 114, 128, 0.3)',
-            'transition': 'all 0.3s ease',
-            'letterSpacing': '0.5px'
-        }),
-        html.Span(id='mute-label', children='', style={
+        html.Button('▶️ Start',
+                    id='start-btn',
+                    n_clicks=0,
+                    className='custom-button',
+                    style={
+                        'marginRight': '12px',
+                        'backgroundColor': '#48bb78',
+                        'color': 'white',
+                        'border': 'none',
+                        'padding': '14px 28px',
+                        'borderRadius': '10px',
+                        'fontSize': '16px',
+                        'fontWeight': '600',
+                        'cursor': 'pointer',
+                        'boxShadow': '0 4px 6px rgba(72, 187, 120, 0.3)'
+                    }
+                    ),
+        html.Button('⏸️ Pause',
+                    id='pause-btn',
+                    n_clicks=0,
+                    className='custom-button',
+                    style={
+                        'marginRight': '12px',
+                        'backgroundColor': '#ed8936',
+                        'color': 'white',
+                        'border': 'none',
+                        'padding': '14px 28px',
+                        'borderRadius': '10px',
+                        'fontSize': '16px',
+                        'fontWeight': '600',
+                        'cursor': 'pointer',
+                        'boxShadow': '0 4px 6px rgba(237, 137, 54, 0.3)'
+                    }
+                    ),
+        html.Button('⏹️ Reset',
+                    id='reset-btn',
+                    n_clicks=0,
+                    className='custom-button',
+                    style={
+                        'marginRight': '12px',
+                        'backgroundColor': '#f56565',
+                        'color': 'white',
+                        'border': 'none',
+                        'padding': '14px 28px',
+                        'borderRadius': '10px',
+                        'fontSize': '16px',
+                        'fontWeight': '600',
+                        'cursor': 'pointer',
+                        'boxShadow': '0 4px 6px rgba(245, 101, 101, 0.3)'
+                    }
+                    ),
+        html.Button('🔈 Mute',
+                    id='mute-btn',
+                    n_clicks=0,
+                    className='custom-button',
+                    style={
+                        'backgroundColor': '#667eea',
+                        'color': 'white',
+                        'border': 'none',
+                        'padding': '14px 28px',
+                        'borderRadius': '10px',
+                        'fontSize': '16px',
+                        'fontWeight': '600',
+                        'cursor': 'pointer',
+                        'boxShadow': '0 4px 6px rgba(102, 126, 234, 0.3)'
+                    }
+                    ),
+        html.Span(id='mute-label', style={
             'marginLeft': '16px',
-            'fontWeight': '600',
+            'fontWeight': '700',
             'fontSize': '16px',
-            'color': '#374151'
+            'color': '#667eea'
         })
-    ], style={'textAlign': 'center', 'marginBottom': '25px'}),
+    ], style={'textAlign': 'center', 'marginBottom': '30px'}),
 
-    # Display
+    # Frequency Display
     html.Div(id='frequency-display', style={
-        'fontSize': '20px',
         'textAlign': 'center',
         'padding': '20px',
-        'fontWeight': '600',
-        'color': '#1f2937',
+        'fontWeight': '700',
+        'fontSize': '18px',
         'backgroundColor': 'white',
         'borderRadius': '12px',
-        'margin': '0 20px 25px 20px',
-        'boxShadow': '0 4px 12px rgba(0,0,0,0.08)',
-        'border': '2px solid #e5e7eb'
+        'margin': '0 20px 30px 20px',
+        'boxShadow': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+        'border': '1px solid #e2e8f0',
+        'color': '#2d3748'
     }),
 
+    # Simulation Graph
     html.Div([
         dcc.Graph(id='simulation-graph', style={'height': '60vh'})
     ], style={
-        'padding': '0 20px',
-        'marginBottom': '30px'
+        'margin': '0 20px',
+        'backgroundColor': 'white',
+        'borderRadius': '12px',
+        'padding': '16px',
+        'boxShadow': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+        'border': '1px solid #e2e8f0'
     }),
 
     # Hidden stores
     dcc.Store(id='simulation-running', data=False),
     dcc.Store(id='time-elapsed', data=0),
     dcc.Store(id='sound-freq', data=0),
-
     html.Div(id='sound-init', style={'display': 'none'}),
     html.Div(id='sound-div', style={'display': 'none'}),
-
-    dcc.Interval(id='interval', interval=100, n_intervals=0, disabled=True)
+    dcc.Interval(id='interval', interval=100, n_intervals=0, disabled=True),
+    dcc.Store(id='h5-stats', data={
+        'loaded': h5_loaded,
+        'mode': speed_mode,
+        'mean': speed_mean,
+        'count': speed_count,
+        'used_key': h5_used_key,
+        'error': h5_error_msg
+    })
 ], style={
-    'fontFamily': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-    'backgroundColor': '#f9fafb',
+    'fontFamily': 'Arial, sans-serif',
+    'backgroundColor': '#f7fafc',
     'minHeight': '100vh',
-    'paddingBottom': '40px'
+    'paddingBottom': '60px'
 })
 
 
-# Use audio frequency button
+# ---------- CALLBACKS ----------
+
 @app.callback(
     Output('freq-input', 'value'),
     Input('use-audio-freq-btn', 'n_clicks'),
@@ -390,7 +547,6 @@ def use_audio_freq(n_clicks):
     return int(dominant_freq)
 
 
-# Toggle velocity inputs visibility
 @app.callback(
     Output('source-vel-inputs', 'style'),
     Input('source-type', 'value')
@@ -407,7 +563,6 @@ def toggle_observer_vel(observer_type):
     return {} if observer_type == 'moving' else {'display': 'none'}
 
 
-# Simulation control
 @app.callback(
     [Output('interval', 'disabled'),
      Output('simulation-running', 'data'),
@@ -441,7 +596,6 @@ def control_simulation(start_clicks, pause_clicks, reset_clicks, n_intervals, is
     return True, False, time_elapsed
 
 
-# Main display + calculate perceived frequency
 @app.callback(
     [Output('simulation-graph', 'figure'),
      Output('frequency-display', 'children'),
@@ -530,10 +684,19 @@ def update_display(is_running, t, f_emit,
     fig.add_trace(go.Scatter(
         x=[obs_x], y=[obs_y],
         mode='markers+text',
-        marker=dict(size=16, color='#f093fb', line=dict(color='white', width=2)),
+        marker=dict(size=20, color='#f093fb', line=dict(color='white', width=3)),
         text=['👂 Observer'],
         textposition='top center',
-        textfont=dict(size=14, color='#1f2937', family='Arial Black')
+        textfont=dict(size=14, color='#2d3748', family='Arial')
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=[src_x], y=[src_y],
+        mode='markers',
+        marker=dict(size=25, color='rgba(0,0,0,0)'),
+        hovertext=f'Car (Source)\nPosition: ({src_x:.1f}, {src_y:.1f})',
+        hoverinfo='text',
+        showlegend=False
     ))
 
     car_svg = '''
@@ -545,20 +708,9 @@ def update_display(is_running, t, f_emit,
             <rect x="52" y="28" width="12" height="10" rx="2" fill="#E3F2FD"/>
             <circle cx="32" cy="65" r="6" fill="#2c3e50" stroke="white" stroke-width="1.5"/>
             <circle cx="68" cy="65" r="6" fill="#2c3e50" stroke="white" stroke-width="1.5"/>
-            <circle cx="78" cy="45" r="2.5" fill="#FFF59D"/>
-            <circle cx="78" cy="55" r="2.5" fill="#FFF59D"/>
         </g>
     </svg>
     '''.format(angle=src_dir if src_type == 'moving' else 0)
-
-    fig.add_trace(go.Scatter(
-        x=[src_x], y=[src_y],
-        mode='markers',
-        marker=dict(size=25, color='rgba(0,0,0,0)', symbol='circle'),
-        hovertext=f'Car (Source)<br>Position: ({src_x:.1f}, {src_y:.1f})',
-        hoverinfo='text',
-        showlegend=False
-    ))
 
     fig.add_layout_image(
         dict(
@@ -581,13 +733,12 @@ def update_display(is_running, t, f_emit,
             t_emit = max(0, t - n * (1.0 / max(1, f_emit)))
             radius = SPEED_OF_SOUND * (t - t_emit)
             if radius > 0:
-                opacity = 1 - (n / wave_count) * 0.7
+                opacity = max(0.05, 1 - (n / wave_count) * 0.7)
                 fig.add_shape(type="circle",
                               xref="x", yref="y",
                               x0=src_x - radius, y0=src_y - radius,
                               x1=src_x + radius, y1=src_y + radius,
-                              line=dict(color="rgba(102, 126, 234, " + str(opacity) + ")",
-                                        dash="dot", width=2))
+                              line=dict(color=f"rgba(102,126,234,{opacity})", dash="dot", width=2))
     except Exception:
         pass
 
@@ -598,7 +749,8 @@ def update_display(is_running, t, f_emit,
             showgrid=True,
             gridcolor='rgba(0,0,0,0.05)',
             zeroline=True,
-            zerolinecolor='rgba(0,0,0,0.2)'
+            zerolinecolor='rgba(0,0,0,0.2)',
+            zerolinewidth=2
         ),
         yaxis=dict(
             title="Y Position (meters)",
@@ -606,25 +758,23 @@ def update_display(is_running, t, f_emit,
             showgrid=True,
             gridcolor='rgba(0,0,0,0.05)',
             zeroline=True,
-            zerolinecolor='rgba(0,0,0,0.2)'
+            zerolinecolor='rgba(0,0,0,0.2)',
+            zerolinewidth=2
         ),
         showlegend=False,
-        title={
-            'text': "Real-Time Doppler Effect Visualization",
-            'x': 0.5,
-            'xanchor': 'center',
-            'font': {'size': 18, 'color': '#1f2937', 'family': 'Arial Black'}
-        },
-        plot_bgcolor='rgba(249, 250, 251, 0.5)',
+        title=dict(
+            text="Real-Time Doppler Effect Visualization",
+            font=dict(size=20, color='#2d3748', family='Arial')
+        ),
+        plot_bgcolor='rgba(247, 250, 252, 0.5)',
         paper_bgcolor='white',
-        margin=dict(l=60, r=60, t=80, b=60),
-        font=dict(family='Arial, sans-serif', size=12, color='#374151')
+        font=dict(family='Arial', color='#4a5568'),
+        margin=dict(l=60, r=40, t=80, b=60)
     )
 
     return fig, freq_text, sound_freq
 
 
-# Clientside callbacks
 app.clientside_callback(
     """
     function(n_clicks) {
