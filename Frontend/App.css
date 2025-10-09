@@ -1,0 +1,157 @@
+/* src/App.css */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', Arial, sans-serif;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0f172a 0%, #0b1220 50%, #022047 100%);
+  color: white;
+}
+
+.app {
+  padding: 24px;
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.header h1 {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.header p {
+  color: #93c5fd;
+}
+
+.status-indicators {
+  margin-top: 12px;
+}
+
+.upload-status,
+.processing-status {
+  color: #93c5fd;
+  margin-top: 8px;
+}
+
+.placeholder-container {
+  padding: 40px;
+  text-align: center;
+  background-color: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+}
+
+.placeholder-container h3 {
+  color: #93c5fd;
+  margin-bottom: 8px;
+}
+
+.placeholder-text {
+  opacity: 0.7;
+}
+
+/* Grid layouts */
+.grid-2-col {
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: 16px;
+}
+
+.grid-1-col {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+/* Card styles */
+.card {
+  background-color: rgba(255, 255, 255, 0.03);
+  padding: 16px;
+  border-radius: 12px;
+}
+
+.card h3 {
+  margin-bottom: 16px;
+  color: #fff;
+}
+
+/* Stat grid */
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.stat-item {
+  background-color: rgba(255, 255, 255, 0.02);
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #93c5fd;
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* Image styles */
+.sar-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Button styles */
+.btn {
+  padding: 10px;
+  background-color: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.btn:hover {
+  background-color: #1d4ed8;
+}
+
+.btn:disabled {
+  background-color: #4b5563;
+  cursor: not-allowed;
+}
+
+/* Slider styles */
+.slider-container {
+  margin: 16px 0;
+}
+
+.slider {
+  width: 100%;
+  margin: 8px 0;
+}
+
+/* Export grid */
+.export-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
