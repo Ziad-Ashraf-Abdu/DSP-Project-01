@@ -1,14 +1,29 @@
+# Core web framework
 fastapi==0.104.1
 uvicorn==0.24.0
+python-multipart==0.0.6
+
+# Data validation (CRITICAL for FastAPI)
 pydantic==2.5.0
+
+# Data processing & scientific computing
 numpy==1.24.0
 pandas==2.0.0
 scipy==1.11.0
+
+# Visualization
 plotly==5.17.0
+kaleido==0.2.1
+
+# Medical file formats
 pyedflib==0.1.32
+
+# AI/ML models
 transformers==4.35.0
 torch==2.1.0
+
+# Image processing
 Pillow==10.0.0
+
+# HTTP requests
 requests==2.31.0
-kaleido==0.2.1
-python-multipart==0.0.6

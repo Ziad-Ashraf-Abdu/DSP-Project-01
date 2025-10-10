@@ -1,433 +1,192 @@
-import React, { useState } from 'react';
-import { Brain, Image, Clock, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import React, { useState } from "react";
+import { Brain, Image as ImageIcon } from "lucide-react";
+import { medicalAPI } from "../services/api";
 
-const AIAnalysis = ({ onAnalyze, results, disabled }) => {
-  const [analyzing, setAnalyzing] = useState(false);
+const AIAnalysis = ({ selectedPatients, datasetType, currentPositions }) => {
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("1d");
 
-  const handleAnalyze = async (analysisType) => {
-    setAnalyzing(true);
+  const runAnalysis = async (analysisType) => {
+    if (selectedPatients.length === 0) return;
+
     try {
-      await onAnalyze(analysisType);
+      setLoading(true);
+      const request = {
+        patient_id: selectedPatients[0],
+        analysis_type: analysisType,
+        signal_type: datasetType,
+        current_position: currentPositions[selectedPatients[0]] || 0,
+      };
+
+      const response = await medicalAPI.aiAnalyze(request);
+      setAnalysisResult(response.data);
+      setActiveTab(analysisType);
+    } catch (error) {
+      console.error("AI analysis error:", error);
+      setAnalysisResult({
+        error: error.response?.data?.detail || "Analysis failed",
+      });
     } finally {
-      setAnalyzing(false);
+      setLoading(false);
     }
   };
 
-  const formatResults = (result) => {
-    if (!result) return null;
+  const renderPrediction = (pred, index) => {
+    const confidence = pred.confidence || pred.probability || 0;
+    const confidencePercent = (confidence * 100).toFixed(1);
+    const label = pred.label || pred.class || "Unknown";
 
-    if (result.analysis_type === '1d') {
-      const predictions = result.result.predictions || [];
-      return (
-        <div style={styles.results}>
-          <div style={styles.resultHeader}>
-            <h4 style={styles.resultTitle}>1D Signal Analysis Results</h4>
-            <div style={styles.resultMeta}>
-              <span>Model: {result.result.model_type || 'N/A'}</span>
-              <span>Type: {result.signal_type}</span>
-            </div>
-          </div>
-          
-          {predictions.length > 0 ? (
-            <div style={styles.predictions}>
-              {predictions.map((pred, index) => {
-                const confidence = pred.confidence || 0;
-                const confidencePercent = Math.round(confidence * 100);
-                let confidenceColor = '#ff6347';
-                if (confidence >= 0.8) confidenceColor = '#00ff41';
-                else if (confidence >= 0.6) confidenceColor = '#ffd700';
-                else if (confidence >= 0.4) confidenceColor = '#ff8c00';
+    let confidenceColor = "text-red-400";
+    let icon = "·";
 
-                return (
-                  <div key={index} style={styles.prediction}>
-                    <div style={styles.predictionHeader}>
-                      <span style={styles.predictionRank}>#{index + 1}</span>
-                      <span style={styles.predictionLabel}>{pred.label}</span>
-                      <span style={{ ...styles.predictionConfidence, color: confidenceColor }}>
-                        {confidencePercent}%
-                      </span>
-                    </div>
-                    <div style={styles.confidenceBar}>
-                      <div 
-                        style={{
-                          ...styles.confidenceFill,
-                          width: `${confidencePercent}%`,
-                          backgroundColor: confidenceColor
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={styles.noPredictions}>
-              <AlertCircle size={16} />
-              <span>No predictions available</span>
-            </div>
-          )}
-
-          {result.result.error && (
-            <div style={styles.error}>
-              <XCircle size={14} />
-              <span>Error: {result.result.error}</span>
-            </div>
-          )}
-        </div>
-      );
-    } else {
-      const predictions = result.result.predictions || [];
-      return (
-        <div style={styles.results}>
-          <div style={styles.resultHeader}>
-            <h4 style={styles.resultTitle}>2D Image Analysis Results</h4>
-            <div style={styles.resultMeta}>
-              <span>Model: Teachable Machine</span>
-              <span>Type: {result.signal_type}</span>
-            </div>
-          </div>
-          
-          {result.result.requires_setup ? (
-            <div style={styles.setupRequired}>
-              <AlertCircle size={16} />
-              <div>
-                <strong>Setup Required</strong>
-                <div style={styles.setupText}>
-                  {result.result.note || 'Additional setup required for 2D analysis'}
-                </div>
-              </div>
-            </div>
-          ) : predictions.length > 0 ? (
-            <div style={styles.predictions}>
-              {predictions.map((pred, index) => {
-                const confidence = pred.probability || 0;
-                const confidencePercent = Math.round(confidence * 100);
-                let confidenceColor = '#ff6347';
-                if (confidence >= 0.8) confidenceColor = '#00ff41';
-                else if (confidence >= 0.6) confidenceColor = '#ffd700';
-                else if (confidence >= 0.4) confidenceColor = '#ff8c00';
-
-                return (
-                  <div key={index} style={styles.prediction}>
-                    <div style={styles.predictionHeader}>
-                      <span style={styles.predictionRank}>#{index + 1}</span>
-                      <span style={styles.predictionLabel}>{pred.class}</span>
-                      <span style={{ ...styles.predictionConfidence, color: confidenceColor }}>
-                        {confidencePercent}%
-                      </span>
-                    </div>
-                    <div style={styles.confidenceBar}>
-                      <div 
-                        style={{
-                          ...styles.confidenceFill,
-                          width: `${confidencePercent}%`,
-                          backgroundColor: confidenceColor
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={styles.noPredictions}>
-              <AlertCircle size={16} />
-              <span>No predictions available</span>
-            </div>
-          )}
-
-          {result.result.error && (
-            <div style={styles.error}>
-              <XCircle size={14} />
-              <span>Error: {result.result.error}</span>
-            </div>
-          )}
-        </div>
-      );
+    if (confidence >= 0.8) {
+      confidenceColor = "text-green-400";
+      icon = "✓";
+    } else if (confidence >= 0.6) {
+      confidenceColor = "text-yellow-400";
+      icon = "○";
+    } else if (confidence >= 0.4) {
+      confidenceColor = "text-orange-400";
+      icon = "△";
     }
+
+    return (
+      <div key={index} className="border-b border-gray-700 py-3">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center">
+            <span className="text-lg mr-2">{icon}</span>
+            <span className="font-medium text-white">{label}</span>
+          </div>
+          <div className={`font-bold ${confidenceColor}`}>
+            {confidencePercent}%
+          </div>
+        </div>
+        <div className="w-full bg-gray-700 rounded-full h-2 mt-2">
+          <div
+            className={`h-2 rounded-full ${
+              confidence >= 0.8
+                ? "bg-green-500"
+                : confidence >= 0.6
+                ? "bg-yellow-500"
+                : confidence >= 0.4
+                ? "bg-orange-500"
+                : "bg-red-500"
+            }`}
+            style={{ width: `${confidence * 100}%` }}
+          ></div>
+        </div>
+      </div>
+    );
   };
 
   return (
-    <div style={styles.container}>
-      <h3 style={styles.title}>
-        <Brain size={16} />
-        AI Analysis
+    <div className="bg-gray-800 rounded-lg p-6 mb-6">
+      <h3 className="text-lg font-semibold mb-4 text-green-400">
+        AI-Based Analysis
       </h3>
 
-      <div style={styles.buttonGroup}>
-        <button 
-          onClick={() => handleAnalyze('1d')}
-          style={{
-            ...styles.button,
-            ...styles.primaryButton,
-            ...(analyzing ? styles.buttonAnalyzing : {}),
-            ...(disabled ? styles.buttonDisabled : {})
-          }}
-          disabled={disabled || analyzing}
-          title="Analyze signal data directly"
+      <div className="flex space-x-4 mb-6">
+        <button
+          onClick={() => runAnalysis("1d")}
+          disabled={loading || selectedPatients.length === 0}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 px-4 py-2 rounded flex items-center text-white disabled:cursor-not-allowed"
         >
-          {analyzing ? (
-            <div style={styles.spinner}></div>
-          ) : (
-            <Brain size={16} />
-          )}
+          <Brain size={20} className="mr-2" />
           Run 1D AI Analysis
         </button>
-        
-        <button 
-          onClick={() => handleAnalyze('2d')}
-          style={{
-            ...styles.button,
-            ...styles.secondaryButton,
-            ...(analyzing ? styles.buttonAnalyzing : {}),
-            ...(disabled ? styles.buttonDisabled : {})
-          }}
-          disabled={disabled || analyzing}
-          title="Analyze graph visualization"
+
+        <button
+          onClick={() => runAnalysis("2d")}
+          disabled={loading || selectedPatients.length === 0}
+          className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 px-4 py-2 rounded flex items-center text-white disabled:cursor-not-allowed"
         >
-          {analyzing ? (
-            <div style={styles.spinner}></div>
-          ) : (
-            <Image size={16} />
-          )}
+          <ImageIcon size={20} className="mr-2" />
           Run 2D AI Analysis
         </button>
       </div>
 
-      {analyzing && (
-        <div style={styles.analyzingOverlay}>
-          <div style={styles.analyzingSpinner}></div>
-          <span>AI Analysis in progress...</span>
+      {loading && (
+        <div className="text-center py-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-400 mx-auto"></div>
+          <p className="text-gray-400 mt-2">Analyzing...</p>
         </div>
       )}
 
-      {results && (
-        <div style={styles.resultsContainer}>
-          {formatResults(results)}
-          <div style={styles.timestamp}>
-            <Clock size={12} />
-            <span>Analysis completed: {new Date(results.timestamp).toLocaleString()}</span>
+      {analysisResult && !loading && (
+        <div className="bg-gray-900 rounded-lg p-4">
+          <div className="flex border-b border-gray-700 mb-4">
+            <button
+              className={`px-4 py-2 font-medium ${
+                activeTab === "1d"
+                  ? "text-green-400 border-b-2 border-green-400"
+                  : "text-gray-400"
+              }`}
+              onClick={() => setActiveTab("1d")}
+            >
+              1D Analysis
+            </button>
+            <button
+              className={`px-4 py-2 font-medium ${
+                activeTab === "2d"
+                  ? "text-green-400 border-b-2 border-green-400"
+                  : "text-gray-400"
+              }`}
+              onClick={() => setActiveTab("2d")}
+            >
+              2D Analysis
+            </button>
           </div>
-        </div>
-      )}
 
-      {disabled && (
-        <div style={styles.disabledMessage}>
-          <AlertCircle size={14} />
-          <span>Load data and select a patient to enable AI analysis</span>
+          {analysisResult.error ? (
+            <div className="text-red-400 p-4 bg-red-900 rounded">
+              Error: {analysisResult.error}
+            </div>
+          ) : analysisResult.result?.predictions ? (
+            <div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div className="text-sm text-gray-400">
+                  <strong>Type:</strong>{" "}
+                  {analysisResult.analysis_type.toUpperCase()}
+                </div>
+                <div className="text-sm text-gray-400">
+                  <strong>Signal:</strong> {analysisResult.signal_type}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {analysisResult.result.predictions
+                  .slice(0, 5)
+                  .map(renderPrediction)}
+              </div>
+
+              {analysisResult.result.prediction_quality && (
+                <div className="mt-4 p-3 bg-gray-700 rounded">
+                  <strong>Quality:</strong>{" "}
+                  {analysisResult.result.prediction_quality}
+                </div>
+              )}
+            </div>
+          ) : analysisResult.result?.success === false ? (
+            <div className="text-yellow-400 p-4 bg-yellow-900 rounded">
+              {analysisResult.result.note ||
+                "Analysis completed but no predictions available"}
+            </div>
+          ) : (
+            <div className="text-gray-400 p-4">
+              No analysis results available
+            </div>
+          )}
+
+          {analysisResult.timestamp && (
+            <div className="text-xs text-gray-500 mt-4 text-right">
+              Analyzed: {new Date(analysisResult.timestamp).toLocaleString()}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
-};
-
-const styles = {
-  container: {
-    backgroundColor: '#111',
-    padding: '12px',
-    borderRadius: '6px',
-    position: 'relative'
-  },
-  title: {
-    color: '#00ff41',
-    margin: '0 0 12px 0',
-    fontSize: '16px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px'
-  },
-  buttonGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    marginBottom: '12px'
-  },
-  button: {
-    padding: '12px',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '8px',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    transition: 'all 0.2s ease'
-  },
-  primaryButton: {
-    backgroundColor: '#007acc',
-    color: 'white'
-  },
-  secondaryButton: {
-    backgroundColor: '#00aa00',
-    color: 'white'
-  },
-  buttonAnalyzing: {
-    opacity: 0.7,
-    cursor: 'not-allowed'
-  },
-  buttonDisabled: {
-    backgroundColor: '#555',
-    color: '#999',
-    cursor: 'not-allowed'
-  },
-  spinner: {
-    width: '16px',
-    height: '16px',
-    border: '2px solid transparent',
-    borderTop: '2px solid currentColor',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite'
-  },
-  analyzingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: '6px',
-    gap: '8px',
-    color: '#00ff41',
-    fontSize: '14px'
-  },
-  analyzingSpinner: {
-    width: '32px',
-    height: '32px',
-    border: '3px solid transparent',
-    borderTop: '3px solid #00ff41',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite'
-  },
-  resultsContainer: {
-    backgroundColor: '#1a1a1a',
-    padding: '12px',
-    borderRadius: '4px',
-    border: '1px solid #333'
-  },
-  resultHeader: {
-    marginBottom: '12px',
-    paddingBottom: '8px',
-    borderBottom: '1px solid #333'
-  },
-  resultTitle: {
-    color: '#00ff41',
-    margin: '0 0 4px 0',
-    fontSize: '14px'
-  },
-  resultMeta: {
-    display: 'flex',
-    gap: '12px',
-    fontSize: '11px',
-    color: '#888'
-  },
-  predictions: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px'
-  },
-  prediction: {
-    backgroundColor: '#222',
-    padding: '8px',
-    borderRadius: '4px',
-    border: '1px solid #333'
-  },
-  predictionHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '6px'
-  },
-  predictionRank: {
-    fontSize: '10px',
-    color: '#888',
-    fontWeight: 'bold'
-  },
-  predictionLabel: {
-    flex: 1,
-    margin: '0 8px',
-    fontSize: '13px',
-    color: '#fff',
-    fontWeight: '500'
-  },
-  predictionConfidence: {
-    fontSize: '12px',
-    fontWeight: 'bold'
-  },
-  confidenceBar: {
-    width: '100%',
-    height: '4px',
-    backgroundColor: '#333',
-    borderRadius: '2px',
-    overflow: 'hidden'
-  },
-  confidenceFill: {
-    height: '100%',
-    transition: 'width 0.3s ease',
-    boxShadow: '0 0 4px currentColor'
-  },
-  noPredictions: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '12px',
-    backgroundColor: '#332200',
-    color: '#ffd700',
-    borderRadius: '4px',
-    fontSize: '12px'
-  },
-  error: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    padding: '8px',
-    backgroundColor: '#330000',
-    color: '#ff6347',
-    borderRadius: '4px',
-    fontSize: '12px',
-    marginTop: '8px'
-  },
-  setupRequired: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '8px',
-    padding: '12px',
-    backgroundColor: '#332200',
-    color: '#ffd700',
-    borderRadius: '4px',
-    fontSize: '12px'
-  },
-  setupText: {
-    fontSize: '11px',
-    color: '#ccc',
-    marginTop: '4px'
-  },
-  timestamp: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    marginTop: '12px',
-    paddingTop: '8px',
-    borderTop: '1px solid #333',
-    fontSize: '10px',
-    color: '#666'
-  },
-  disabledMessage: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '8px',
-    backgroundColor: '#332200',
-    color: '#ffd700',
-    borderRadius: '4px',
-    fontSize: '12px',
-    textAlign: 'center'
-  }
 };
 
 export default AIAnalysis;

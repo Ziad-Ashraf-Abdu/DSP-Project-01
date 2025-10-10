@@ -566,8 +566,6 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 # Helper functions
-# In main.py, update the prepare_visualization_data function:
-
 def prepare_visualization_data(patient, patient_id, viz_type, channels, overlay, current_position):
     """Prepare data for visualization using the medical processing functions"""
     try:

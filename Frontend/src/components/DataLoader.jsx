@@ -1,204 +1,99 @@
-import React, { useState } from 'react';
-import { Upload, FolderOpen, AlertCircle } from 'lucide-react';
+import React, { useState } from "react";
+import { medicalAPI } from "../services/api";
 
-const DataLoader = ({ onLoadData, datasetType, loading }) => {
-  const [dataDir, setDataDir] = useState('./data');
-  const [localDatasetType, setLocalDatasetType] = useState(datasetType);
+const DataLoader = ({ onDataLoaded, datasetType, onDatasetTypeChange }) => {
+  const [dataDir, setDataDir] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
 
-  const handleLoad = () => {
-    if (dataDir.trim()) {
-      onLoadData(localDatasetType, dataDir);
-    }
-  };
+  const handleLoadData = async () => {
+    try {
+      setLoading(true);
+      setMessage("");
 
-  const handleDatasetTypeChange = (newType) => {
-    setLocalDatasetType(newType);
-    // Auto-load with new type if we already have a directory
-    if (dataDir.trim()) {
-      onLoadData(newType, dataDir);
+      const response = await medicalAPI.loadData(datasetType, dataDir);
+
+      if (response.data.success) {
+        setMessage(response.data.message);
+        if (onDataLoaded) {
+          onDataLoaded(response.data.patients);
+        }
+      }
+    } catch (error) {
+      setMessage(error.response?.data?.detail || "Failed to load data");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div style={styles.container}>
-      <h3 style={styles.title}>
-        <FolderOpen size={16} />
-        Data Configuration
-      </h3>
-      
-      <div style={styles.controlGroup}>
-        <label style={styles.label}>Signal Type:</label>
-        <div style={styles.radioGroup}>
-          <label style={styles.radioLabel}>
-            <input
-              type="radio"
-              value="ECG"
-              checked={localDatasetType === 'ECG'}
-              onChange={(e) => handleDatasetTypeChange(e.target.value)}
-              disabled={loading}
-            />
-            <span style={localDatasetType === 'ECG' ? styles.radioActive : styles.radioInactive}>
+    <div className="bg-gray-800 rounded-lg p-6 mb-6">
+      <h3 className="text-lg font-semibold mb-4 text-green-400">Data Loader</h3>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <div>
+          <label className="block text-sm font-medium mb-2">Signal Type</label>
+          <div className="flex space-x-4">
+            <label className="flex items-center">
+              <input
+                type="radio"
+                value="ECG"
+                checked={datasetType === "ECG"}
+                onChange={(e) => onDatasetTypeChange(e.target.value)}
+                className="mr-2"
+              />
               ECG
-            </span>
-          </label>
-          <label style={styles.radioLabel}>
-            <input
-              type="radio"
-              value="EEG"
-              checked={localDatasetType === 'EEG'}
-              onChange={(e) => handleDatasetTypeChange(e.target.value)}
-              disabled={loading}
-            />
-            <span style={localDatasetType === 'EEG' ? styles.radioActive : styles.radioInactive}>
+            </label>
+            <label className="flex items-center">
+              <input
+                type="radio"
+                value="EEG"
+                checked={datasetType === "EEG"}
+                onChange={(e) => onDatasetTypeChange(e.target.value)}
+                className="mr-2"
+              />
               EEG
-            </span>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            Data Directory (optional)
           </label>
+          <input
+            type="text"
+            value={dataDir}
+            onChange={(e) => setDataDir(e.target.value)}
+            placeholder="Leave empty for auto-detection"
+            className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"
+          />
+        </div>
+
+        <div className="flex items-end">
+          <button
+            onClick={handleLoadData}
+            disabled={loading}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 px-4 py-2 rounded text-white"
+          >
+            {loading ? "Loading..." : "Load Data"}
+          </button>
         </div>
       </div>
 
-      <div style={styles.controlGroup}>
-        <label style={styles.label}>Data Directory:</label>
-        <input
-          type="text"
-          value={dataDir}
-          onChange={(e) => setDataDir(e.target.value)}
-          placeholder="./data"
-          style={styles.input}
-          disabled={loading}
-        />
-        <div style={styles.helpText}>
-          Leave empty for auto-detection, or specify path to .hea/.dat (ECG) or .edf (EEG) files
-        </div>
-      </div>
-
-      <button 
-        onClick={handleLoad} 
-        style={{
-          ...styles.button,
-          ...(loading ? styles.buttonDisabled : styles.buttonActive)
-        }}
-        disabled={loading}
-      >
-        {loading ? (
-          <>
-            <div style={styles.spinner}></div>
-            Loading...
-          </>
-        ) : (
-          <>
-            <Upload size={16} />
-            Load Data
-          </>
-        )}
-      </button>
-
-      {localDatasetType === 'EEG' && (
-        <div style={styles.warning}>
-          <AlertCircle size={14} />
-          <span>EEG support requires pyedflib. Install with: pip install pyedflib</span>
+      {message && (
+        <div
+          className={`p-3 rounded ${
+            message.includes("Loaded")
+              ? "bg-green-900 text-green-300"
+              : "bg-red-900 text-red-300"
+          }`}
+        >
+          {message}
         </div>
       )}
     </div>
   );
-};
-
-const styles = {
-  container: {
-    backgroundColor: '#111',
-    padding: '12px',
-    borderRadius: '6px'
-  },
-  title: {
-    color: '#00ff41',
-    margin: '0 0 12px 0',
-    fontSize: '16px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px'
-  },
-  controlGroup: {
-    marginBottom: '12px'
-  },
-  label: {
-    display: 'block',
-    marginBottom: '6px',
-    color: '#ccc',
-    fontSize: '14px'
-  },
-  radioGroup: {
-    display: 'flex',
-    gap: '12px'
-  },
-  radioLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '4px',
-    cursor: 'pointer'
-  },
-  radioActive: {
-    color: '#00ff41',
-    fontWeight: 'bold'
-  },
-  radioInactive: {
-    color: '#ccc'
-  },
-  input: {
-    width: '100%',
-    padding: '8px',
-    backgroundColor: '#333',
-    border: '1px solid #555',
-    borderRadius: '4px',
-    color: '#fff',
-    fontSize: '14px'
-  },
-  helpText: {
-    fontSize: '11px',
-    color: '#888',
-    marginTop: '4px',
-    fontStyle: 'italic'
-  },
-  button: {
-    width: '100%',
-    padding: '10px',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '8px',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    transition: 'all 0.2s ease'
-  },
-  buttonActive: {
-    backgroundColor: '#007acc',
-    color: 'white'
-  },
-  buttonDisabled: {
-    backgroundColor: '#555',
-    color: '#999',
-    cursor: 'not-allowed'
-  },
-  spinner: {
-    width: '16px',
-    height: '16px',
-    border: '2px solid transparent',
-    borderTop: '2px solid #fff',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite'
-  },
-  warning: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    backgroundColor: '#332200',
-    color: '#ffd700',
-    padding: '8px',
-    borderRadius: '4px',
-    marginTop: '8px',
-    fontSize: '11px'
-  }
 };
 
 export default DataLoader;
